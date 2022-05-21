@@ -17,25 +17,32 @@ from block import CharacteristicBlock
 from structure_organiser import StructureOrganiser
 
 argparser = argparse.ArgumentParser()
-argparser.add_argument('page', help='imported page of folder')
+argparser.add_argument('--page', help='imported page of folder', default='')
 #argparser.add_argument('--r', dest='r', action='store_true')
 args = argparser.parse_args()
 
-PagePath = args.page
+parsed_page = None
+parsed_pages = None
+if args.page != '':
+    PagePath = args.page
+    with open(PagePath, encoding='utf-8') as file:
+        try:
+            parsed_page = BeautifulSoup(file, 'html.parser')
+        except:
+            print('selected file is not an html page')
+            print('exiting..')
+            exit()
+else:
+    parsed_page = BeautifulSoup(input(), 'html.parser')
+
 #FOR TEST
 #PagePath = 'page.html'
 
-parsed_page = None
-parsed_pages = None
+if not os.path.exists('./result'):
+    os.mkdir('./result')
+if not os.path.exists('./result/pics'):
+    os.mkdir('./result/pics')
 
-
-with open(PagePath, encoding='utf-8') as file:
-    try:
-        parsed_page = BeautifulSoup(file, 'html.parser')
-    except:
-        print('selected file is not an html page')
-        print('exiting..')
-        exit()
 
 #dict of configs
 Config = None
@@ -105,7 +112,7 @@ def find_similar(Blocks):
     similars_str = ''
     for sim in sims:
         similars_str += str(sim) + '\n'
-    with open('similars.txt', 'w') as file:
+    with open('./result/similars.txt', 'w') as file:
         file.write(similars_str)
 
 def find_similar_structures(Blocks):
@@ -132,15 +139,19 @@ def find_similar_structures(Blocks):
     similars_structure_str = ''
     for sim in sims_source:
         similars_structure_str += str(sim) + '\n'
-    with open('similar_structures.txt', 'w') as file:
+    with open('./result/similar_structures.txt', 'w') as file:
         file.write(similars_structure_str)
 
 def graph_body(parsed_page, Blocks):
     body = parsed_page.body
     bodyBlock = Blocks[hash(body)]
     bodyBlock.characteristic.graph(plt, Config, 'all')
+    graph_names = [
+        'firstorder_block', 'firstorder_inline', 'firstorder_all',
+        'full_block', 'full_inline', 'full_all'
+        ]
     for i in plt.get_fignums():
-        plt.figure(i).savefig(f'./pics/{i}')
+        plt.figure(i).savefig(f'./result/pics/{graph_names[i - 1]}')
 
 find_similar(Blocks)
 find_similar_structures(Blocks)
