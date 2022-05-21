@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import math
+import os
 
 import json
 
@@ -14,18 +15,26 @@ import threading
 
 from yaml import parse
 
-#argparser = argparse.ArgumentParser()
-#argparser.add_argument('page', help='imported page')
-#args = argparser.parse_args()
+argparser = argparse.ArgumentParser()
+argparser.add_argument('page', help='imported page of folder')
+#argparser.add_argument('--r', dest='r', action='store_true')
+args = argparser.parse_args()
 
-#PagePath = args.page
+PagePath = args.page
 #FOR TEST
-PagePath = 'page.html'
+#PagePath = 'page.html'
 
 parsed_page = None
+parsed_pages = None
+
 
 with open(PagePath) as file:
-    parsed_page = BeautifulSoup(file, 'html.parser')
+    try:
+        parsed_page = BeautifulSoup(file, 'html.parser')
+    except:
+        print('selected file is not an html page')
+        print('exiting..')
+        exit()
 
 #dict of configs
 Config = None
@@ -52,9 +61,13 @@ class Block:
         class ArgumentException(Exception):
             pass
     def __init__(self, me, page, parent, rec=None, args=None):
+        #bs4..Tag
         self.page = page
+        #bs4..Tag
         self.me = me
+        #Block
         self.parent = parent
+        #Block
         self.children = []
         if rec != None:
             if args == None:
@@ -65,7 +78,7 @@ class Block:
         self.characteristic = None
 
     def add_characteristic(self, structureOrganiser):
-        self.characteristic = CharacteristicBlock(structureOrganiser, self.me, self.page, self.parent)
+        self.characteristic = CharacteristicBlock(structureOrganiser, self.me, self.page, self.parent, self.children)
     def add_parent(self, blocks):
         try:
             self.parent = blocks[hash(self.me.parent)]
@@ -81,10 +94,11 @@ class CharacteristicBlock(Block):
             self.inline = inline
             self.all = all
 
-    def __init__(self, structureOrganiser, me, page, parent):
+    def __init__(self, structureOrganiser, me, page, parent, children):
         super().__init__(me, page, parent)
         #tags - dict {tagname:iterators}
         #self.tags = tags
+        self.children = children
         self.structureOrganiser = structureOrganiser
         self.firstorder_tagvector = None
         self.full_tagvector = None
@@ -103,25 +117,26 @@ class CharacteristicBlock(Block):
             if np.array_equal(block[1].characteristic.get_fullTagvector(), full_tagvector):
                 similarby_full.append(block[0])
         return (similarby_fo, similarby_full)
-
+    
     def compare_structures(self, Block1, Block2=None):
         if Block2 == None:
             Block2 = self
+        if Block1.me.name == Block2.me.name:
+            if len(Block1.children) == len(Block2.children):
+                    flag = True
+                    for i in range(len(Block1.children)):
+                        flag = flag and self.compare_structures(Block1.children[i], Block2.children[i])
+                    return flag
+        return False
         
 
     def get_similars_structure(self, Blocks):
-        firstorder_tagvector = self.get_firstorderTagvector()
-        full_tagvector = self.get_fullTagvector()
-
-        similarby_fo = []
-        similarby_full = []
-
+        similar = []
         for block in Blocks.items():
-            if len(self.children) == len(block.children):
-                for i in range(len(self.children)):
-                    if self.compare_structures(self.children[i], block.children)
-
-        return
+            if self.compare_structures(block[1]):
+                similar.append(block[0])
+        return similar
+    
     #finding blocks that have structure close to self block
     def get_close(self, Blocks, Config):
         firstorder_tagvector = self.get_firstorderTagvector()
@@ -300,11 +315,15 @@ def CreateBlock(block, args):
     if isinstance(block.me, bs4.element.Tag):
         for blk in block.me.children:
             if isinstance(blk, bs4.element.Tag) and blk.children != None:
-                args['Blocks'].update({hash(blk) : Block(blk, args['Page'], args['Blocks'][hash(block.me)], CreateBlock, args)})
+                #args['Blocks'].update({hash(blk) : Block(blk, args['Page'], args['Blocks'][hash(block.me)], CreateBlock, args)})
+                Block(blk, args['Page'], args['Blocks'][hash(block.me)], CreateBlock, args)
                 block.children.append(args['Blocks'][hash(blk)])
 
 Blocks = {}
 Block(parsed_page.body, parsed_page, None, CreateBlock, {'Blocks' : Blocks, 'Page' : parsed_page})
+
+for block in Blocks.values():
+    block.add_characteristic(structureOrganiser)
 
 print(len(Blocks))
 
@@ -312,95 +331,67 @@ print(len(Blocks))
 for block in Blocks.values():
     block.add_characteristic(structureOrganiser)
 
-key, bl = random.choice(list(Blocks.items()))
-bl_parent = Blocks[hash(bl.parent.me)]
+def find_similar(Blocks):
+    sims = []
+    _Blocks = Blocks.copy()
 
+    def similars(_Blocks, lst):
+        key, block = random.choice(list(_Blocks.items()))
+        sims = block.characteristic.get_similars(_Blocks)[1]
+        if sims == [key]:
+            _Blocks.pop(key)
+        else:
+            lst.append(sims)
+            for sim in lst[-1]:
+                _Blocks.pop(sim)
+        if len(_Blocks) != 0:
+            similars(_Blocks, lst)
 
-Blocks1 = {hash(parsed_page.body) : Block(parsed_page.body, parsed_page, None)}
-def CreateBlocks(page, Page):
-    for tag in (Config['tags']['block'] + Config['tags']['inline']):
-        for block in page.find_all(tag):
-            if block != None and block.children != None:
-                Blocks1.update({hash(block) : Block(block, Page, None)})
-    for block in Blocks1.values():
-        if block.me != page:
-            block.add_parent(Blocks1)
+    similars(_Blocks, sims)
 
-CreateBlocks(parsed_page.body, parsed_page)
-for block in Blocks1.values():
-    block.add_characteristic(structureOrganiser)
+    similars_str = ''
+    for sim in sims:
+        similars_str += str(sim) + '\n'
+    with open('similars.txt', 'w') as file:
+        file.write(similars_str)
 
-print(len(Blocks1))
+def find_similar_structures(Blocks):
+    sims = []
+    _Blocks = Blocks.copy()
+    def similars_structure(_Blocks, lst):
+        key, block = random.choice(list(_Blocks.items()))
+        sims = block.characteristic.get_similars_structure(_Blocks)
+        if sims == [key]:
+            _Blocks.pop(key)
+        else:
+            lst.append(sims)
+            for sim in lst[-1]:
+                _Blocks.pop(sim)
+        if len(_Blocks) != 0:
+            similars_structure(_Blocks, lst)
 
-key, bl = random.choice(list(Blocks1.items()))
-bl_parent = Blocks1[hash(bl.parent.me)]
+    similars_structure(_Blocks, sims)
 
-ss = ''
-Blocks1_me = [block.me for block in Blocks1.values()]
-for block in Blocks.values():
-    if block.me not in Blocks1_me:
-        ss += str(block.me) + '\n' + '='*100 + '\n'
-with open('output.out', 'w') as file:
-    file.write(ss)
-#print(len(Blocks1))
+    sims_source = []
+    for sim in sims:
+        #print(sim)
+        sims_source.append([(Blocks[s].me.sourceline, Blocks[s].me.sourcepos) for s in sim])
+    similars_structure_str = ''
+    for sim in sims_source:
+        similars_structure_str += str(sim) + '\n'
+    with open('similar_structures.txt', 'w') as file:
+        file.write(similars_structure_str)
 
-"""
-def CreateBlocks(page):
-    for blocktag in Config['tags']['block']:
-        for block in page.body.find_all(blocktag):
-            if block != None:
-                Blocks.update({hash(block) : Block(block, page, None)})
-    #TODO: add parents
+def graph_body(parsed_page, Blocks):
+    body = parsed_page.body
+    bodyBlock = Blocks[hash(body)]
+    bodyBlock.characteristic.graph(plt, Config, 'all')
+    for i in plt.get_fignums():
+        plt.figure(i).savefig(f'./pics/{i}')
 
-
-CreateBlocks(parsed_page)
-for block in Blocks.values():
-    block.add_characteristic(structureOrganiser)
-
-
-for block in Blocks.values():
-    block.add_characteristic(structureOrganiser)
-
-ss = ''
-for block in Blocks.values():
-    if hash(block.me) != hash(parsed_page.body):
-        try:
-            a = Blocks[hash(block.me.parent)]
-        except:
-            ss += str(block.me) + '\n' + '='*100 + '\n'
-with open('output.out', 'w') as file:
-    file.write(ss)"""
-
-"""
-sims = []
-_Blocks = Blocks.copy()
-
-def similars(_Blocks, lst):
-    key, block = random.choice(list(_Blocks.items()))
-    sims = block.characteristic.get_similars(_Blocks)[1]
-    if sims == [key]:
-        _Blocks.pop(key)
-    else:
-        lst.append(sims)
-        for sim in lst[-1]:
-            _Blocks.pop(sim)
-    if len(_Blocks) != 0:
-        similars(_Blocks, lst)
-
-similars(_Blocks, sims)
-
-similars_str = ''
-for sim in sims:
-    similars_str += str(sim) + '\n'
-with open('output.out', 'w') as file:
-    file.write(similars_str)
-
-body = parsed_page.body
-bodyBlock = Blocks[hash(body)]
-bodyBlock.characteristic.graph(plt, Config, 'all')
-#plt.show()
-for i in plt.get_fignums():
-    plt.figure(i).savefig(f'./pics/{i}')"""
+find_similar(Blocks)
+find_similar_structures(Blocks)
+graph_body(parsed_page, Blocks)
 
 def ComparePages(pages, Config, structureOrganiser):
     Bodies = {}

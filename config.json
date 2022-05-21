@@ -34,7 +34,11 @@
             "table",
             "tfoot",
             "ul",
-            "video"
+            "video",
+            "svg",
+            "menu",
+            "iframe",
+            "g"
         ],
         "inline": [
             "a",
@@ -74,7 +78,8 @@
             "style",
             "title",
             "meta",
-            "link"
+            "link",
+            "path"
         ]
     },
 
